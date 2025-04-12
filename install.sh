@@ -16,7 +16,7 @@ mkdir -p ~/.config/systemd/user
 
 # Copy the binary to user's local bin
 echo "Installing binary..."
-cp target/release/clipboard_logger ~/.local/bin/
+cp target/release/clipboard-logger ~/.local/bin/
 
 # Copy systemd service file
 echo "Installing systemd service..."
