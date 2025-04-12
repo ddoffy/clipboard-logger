@@ -1,0 +1,11 @@
+timestamp,content
+timestamp,content
+2025-04-11 20:26:52,KC_UNDS
+2025-04-11 20:27:09,"Monitors the clipboard every second
+Only logs new content when it changes (avoids duplicates)
+Includes timestamps with each entry
+Saves data in CSV format for easy analysis
+Creates the CSV file if it doesn't exist, appends to it if it does
+
+The program will run until you stop it with Ctrl+C. The CSV file "
+2025-04-11 20:27:15,The program will run until you stop it with Ctrl+C. The CSV file (clipboard_history.csv) will be created in the same directory as the executable.
