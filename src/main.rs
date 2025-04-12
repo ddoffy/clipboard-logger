@@ -131,15 +131,17 @@ fn setup_daemon(program_name: &str) -> Result<(), Box<dyn std::error::Error>> {
         .stderr(stderr);
 
     daemonize.start()?;
+    println!("Daemon started successfully: {}", program_name);
 
-    // Check if the daemon is already running
-    let pid_file = log_dir.join("clipboard-logger.pid");
-    if pid_file.exists() {
-        let pid = fs::read_to_string(&pid_file)?;
-        println!("Daemon is already running with PID: {}", pid);
-    } else {
-        println!("Daemon started successfully: {}", program_name);
-    }
+    // // Check if the daemon is already running
+    // let pid_file = log_dir.join("clipboard-logger.pid");
+    // if pid_file.exists() {
+    //     let pid = fs::read_to_string(&pid_file)?;
+    //     println!("Daemon is already running with PID: {}", pid);
+    // } else {
+    //     println!("Daemon started successfully: {}", program_name);
+    // }
+
     Ok(())
 }
 
