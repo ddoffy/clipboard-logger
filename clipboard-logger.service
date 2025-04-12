@@ -5,7 +5,7 @@ After=network.target
 [Service]
 Type=forking
 User=%u
-ExecStart=/usr/local/bin/clipboard-logger --daemon --rotate-daily
+ExecStart=~/.local/bin/clipboard-logger --daemon --rotate-daily
 Restart=on-failure
 RestartSec=5
 KillMode=process
