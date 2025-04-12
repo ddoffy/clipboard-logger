@@ -432,7 +432,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     ClipboardContent::Empty => {
                         // Do nothing for empty content
-                        println!("Clipboard is empty at {}", Local::now());
                     }
                 }
             }
