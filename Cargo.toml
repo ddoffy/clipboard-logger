@@ -2,7 +2,7 @@
 name = "clipboard-logger"
 version = "0.1.0"
 edition = "2024"
-author = ["D. Doffy <cuongnsm@gmail.com>"]
+author = "D. Doffy <cuongnsm@gmail.com>"
 description = "A daemon service for logging clipboard contents to a CSV file"
 
 [dependencies]

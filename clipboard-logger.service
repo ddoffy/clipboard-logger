@@ -3,7 +3,7 @@ Description=Clipboard Logger Service
 After=network.target
 
 [Service]
-Type=forking
+Type=simple
 User=%u
 ExecStart=~/.local/bin/clipboard-logger --daemon --rotate-daily
 Restart=on-failure

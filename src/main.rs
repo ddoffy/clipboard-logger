@@ -24,10 +24,6 @@ struct Args {
     #[arg(short, long, default_value_t = 1)]
     interval: u64,
 
-    /// run as background daemon
-    #[arg(short, long)]
-    daemon: bool,
-
     /// Directory to store clipboard images
     #[arg(short, long, value_name = "DIR")]
     image_dir: Option<PathBuf>,
@@ -121,16 +117,27 @@ fn setup_daemon(program_name: &str) -> Result<(), Box<dyn std::error::Error>> {
 
     let username = whoami::username();
 
-    let daemonize = Daemonize::new()
+    let _daemonize = Daemonize::new()
         .pid_file(log_dir.join("clipboard-logger.pid"))
-        .chown_pid_file(true)
         .working_directory(&log_dir)
         .user(username.as_str())
-        .group(username.as_str())
+        .umask(0o027)
         .stdout(stdout)
-        .stderr(stderr);
+        .stderr(stderr)
+        .execute();
 
-    daemonize.start()?;
+    //
+    // match daemonize.start() {
+    //     Ok(_) => Ok(()),
+    //     Err(e) => {
+    //         // Write error to a file since daemon errors can be hard to see
+    //         let err_msg = format!("Failed to start daemon: {}", e);
+    //         let error_file = log_dir.join("daemon_error.log");
+    //         fs::write(error_file, err_msg.clone())?;
+    //         Err(err_msg.into())
+    //     }
+    // };
+
     println!("Daemon started successfully: {}", program_name);
 
     // // Check if the daemon is already running
@@ -207,11 +214,6 @@ fn rotate_csv_file(
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse command line arguments
     let args = Args::parse();
-
-    // Handle daemon mode
-    if args.daemon {
-        setup_daemon("clipboard-logger")?;
-    }
 
     // Determine base output directory
     let base_dir = match args.output_dir {
@@ -302,9 +304,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Daily rotation enabled - files will be moved to the upload directory");
     }
 
-    if !args.daemon {
-        println!("Press Ctrl+C to stop the service.");
-    }
+    println!("Press Ctrl+C to stop the service.");
 
     // Main loop - check clipboard every second
     loop {
@@ -346,9 +346,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 wtr.flush()?;
             }
 
-            if !args.daemon {
-                println!("Day changed. New log file: {}", current_csv_path.display());
-            }
+            println!("Day changed. New log file: {}", current_csv_path.display());
         }
 
         // Get current clipboard content
@@ -373,9 +371,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             wtr.serialize(&entry)?;
                             wtr.flush()?;
 
-                            if !args.daemon {
-                                println!("Logged new text content at {}", Local::now());
-                            }
+                            println!("Logged new text content at {}", Local::now());
 
                             // Update last_content
                             last_text_content = text;
@@ -407,9 +403,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             wtr.serialize(&entry)?;
                             wtr.flush()?;
 
-                            if !args.daemon {
-                                println!("Logged new image content at {}", Local::now());
-                            }
+                            println!("Logged new image content at {}", Local::now());
 
                             // Update last_content
                             last_text_content = String::new();
@@ -430,9 +424,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         wtr.serialize(&entry)?;
                         wtr.flush()?;
 
-                        if !args.daemon {
-                            println!("Logged other content at {}", Local::now());
-                        }
+                        println!("Logged other content at {}", Local::now());
 
                         // Update last_content
                         last_text_content = String::new();
@@ -440,9 +432,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     ClipboardContent::Empty => {
                         // Do nothing for empty content
-                        if !args.daemon {
-                            println!("Clipboard is empty at {}", Local::now());
-                        }
+                        println!("Clipboard is empty at {}", Local::now());
                     }
                 }
             }
