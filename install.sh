@@ -23,7 +23,7 @@ echo "Installing systemd service..."
 cp  clipboard-logger.service ~/.config/systemd/user/
 
 # Reload systemd daemon
-systemctl --user daemon-reloadd
+systemctl --user daemon-reload
 
 echo "Installation complete!"
 echo ""
