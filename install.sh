@@ -18,6 +18,9 @@ mkdir -p ~/.config/systemd/user
 echo "Installing binary..."
 cp target/release/clipboard-logger ~/.local/bin/
 
+# using sed to replace {{home}} with the user's home directory
+sed -i "s|{{home}}|$HOME|g" clipboard-logger.service
+
 # Copy systemd service file
 echo "Installing systemd service..."
 cp  clipboard-logger.service ~/.config/systemd/user/

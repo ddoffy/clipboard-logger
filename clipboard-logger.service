@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=~/.local/bin/clipboard-logger --interval 5 --rotate-daily
+ExecStart={{home}}/.local/bin/clipboard-logger --interval 5 --rotate-daily
 Restart=on-failure
 RestartSec=5
 KillMode=process
