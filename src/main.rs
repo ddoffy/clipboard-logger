@@ -1,11 +1,13 @@
+use crate::lib::{Args, ClipboardContent, ClipboardEntry};
 use arboard::Clipboard;
 use chrono::{Datelike, Local};
 use clap::Parser;
+use clipboard_logger::read_csv_file;
+use clipboard_logger::sync_clipboard;
 use csv::Writer;
 use daemonize::Daemonize;
 use directories::BaseDirs;
 use image::DynamicImage;
-use serde::Serialize;
 use std::{
     fs::{self, File, OpenOptions},
     path::PathBuf,
@@ -13,44 +15,7 @@ use std::{
     time::Duration,
 };
 
-#[derive(Debug, Parser)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    /// Path to the CSV file
-    #[arg(short, long, value_name = "FILE")]
-    output_dir: Option<String>,
-
-    /// Interval in seconds to check the clipboard
-    #[arg(short, long, default_value_t = 1)]
-    interval: u64,
-
-    /// Directory to store clipboard images
-    #[arg(short, long, value_name = "DIR")]
-    image_dir: Option<PathBuf>,
-
-    /// Directory for completed files ready for server upload
-    #[arg(short = 'u', long, value_name = "DIR")]
-    upload_dir: Option<PathBuf>,
-
-    /// Enable automatic daily file rotation
-    #[arg(short = 'r', long)]
-    rotate_daily: bool,
-}
-
-#[derive(Debug, Serialize)]
-struct ClipboardEntry {
-    timestamp: String,
-    content_type: String,
-    content: String,
-    image_path: Option<String>,
-}
-
-enum ClipboardContent {
-    Text(String),
-    Image(DynamicImage, String), //  (Image, filename)
-    Other(String),               // Type descriptiion
-    Empty,
-}
+mod lib;
 
 fn get_clipboard_content(
     clipboard: &mut Clipboard,
@@ -211,6 +176,81 @@ fn rotate_csv_file(
     Ok(())
 }
 
+fn sync_all_clipboard(upload_dir: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    // Get all CSV files in the upload directory
+    let paths = fs::read_dir(upload_dir)?
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let path = entry.path();
+            if path.extension()?.to_str()? == "csv" {
+                Some(path)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+    // Sort the paths by modification time
+    let mut paths = paths;
+    paths.sort_by_key(|path| {
+        let metadata = fs::metadata(path).unwrap();
+        metadata.modified().unwrap()
+    });
+
+    for path in paths {
+        // Read the CSV file
+        let contents = read_csv_file(path.to_str().unwrap())?;
+
+        // Sync the clipboard
+        sync_clipboard(contents)?;
+
+        println!("Sync completed for file: {}", path.display());
+
+        // move the file to the archive directory
+        let archive_dir = path.parent().unwrap().join("archive");
+
+        if !archive_dir.exists() {
+            fs::create_dir_all(&archive_dir)?;
+        }
+
+        let archive_name = format!(
+            "{}_{}.csv",
+            path.file_stem().unwrap().to_str().unwrap(),
+            Local::now().format("%Y-%m-%d_%H-%M-%S")
+        );
+
+        let archive_path = archive_dir.join(archive_name);
+
+        fs::rename(&path, &archive_path)?;
+
+        println!(
+            "Moved file {} to archive directory: {}",
+            path.display(),
+            archive_path.display()
+        );
+    }
+    Ok(())
+}
+
+// if args.sync {
+//     // clipboard_2025-04-12.csv
+//     // clipboard_2025-04-13.csv
+//     // clipboard_2025-04-14.csv
+//     // clipboard_2025-04-15.csv
+//     // clipboard_2025-04-16.csv
+//     // clipboard_history.csv
+//     // clipboard-logs.csv
+//     let path = "clipboard_2025-04-14.csv";
+//
+//     let contents = read_csv_file(path)?;
+//
+//     sync_clipboard(contents)?;
+//
+//     println!("Sync completed successfully.");
+//
+//     return Ok(());
+// }
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse command line arguments
     let args = Args::parse();
@@ -321,6 +361,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 // Rotate files
                 rotate_csv_file(&current_csv_path, &upload_dir)?;
+
+                println!("Rotated file: {}", current_csv_path.display());
+
+                // Sync to server
+                sync_all_clipboard(upload_dir.clone())?;
             }
 
             // Update current date
