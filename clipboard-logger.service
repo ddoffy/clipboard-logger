@@ -3,6 +3,9 @@ Description=Clipboard Logger Service
 After=network.target
 
 [Service]
+Environment="CLIPBOARD_API_KEY=[your_api_key_here]"
+Environment="CLIPBOARD_ENDPOINT=http://localhost:8000/api/v1/upload"
+Environment="CLIPBOARD_API_ENDPOINT=http://localhost:8000/api/v1/clipboard"
 Type=simple
 ExecStart={{home}}/.local/bin/clipboard-logger --interval 5 --rotate-daily
 Restart=on-failure
