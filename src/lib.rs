@@ -91,7 +91,6 @@ pub fn read_csv_file<P: AsRef<Path>>(path: P) -> Result<Vec<ClipboardEntry>, Box
         let content_type = record[1].to_string();
         let content = record[2].to_string();
         let image_path = record[3].to_string();
-
         result.push(ClipboardEntry {
             timestamp,
             content_type,

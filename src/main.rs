@@ -1,9 +1,7 @@
-use crate::lib::{Args, ClipboardContent, ClipboardEntry};
+use crate::lib::{Args, ClipboardContent, ClipboardEntry, read_csv_file, sync_clipboard};
 use arboard::Clipboard;
 use chrono::{Datelike, Local};
 use clap::Parser;
-use clipboard_logger::read_csv_file;
-use clipboard_logger::sync_clipboard;
 use csv::Writer;
 use daemonize::Daemonize;
 use directories::BaseDirs;
@@ -407,7 +405,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             // create a new ClipboardEntry
                             let entry = ClipboardEntry {
                                 timestamp,
-                                content_type: "text".to_string(),
+                                content_type: "text/plain".to_string(),
                                 content: text.clone(),
                                 image_path: None,
                             };
@@ -433,13 +431,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let path = image_dir.join(&filename);
                             image.save(&path)?;
 
+                            // get extension to know file type
+                            let extension = path.extension().unwrap_or_default();
+
+                            let content_type = match extension.to_str() {
+                                Some("png") => "image/png",
+                                Some("jpg") | Some("jpeg") => "image/jpeg",
+                                Some("gif") => "image/gif",
+                                _ => "image/unknown",
+                            };
+
                             // get current timestamp
                             let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
                             // create a new ClipboardEntry
                             let entry = ClipboardEntry {
                                 timestamp,
-                                content_type: "image".to_string(),
+                                content_type: content_type.to_string(),
                                 content: format!("Image: {}", filename),
                                 image_path: Some(path.to_string_lossy().to_string()),
                             };
