@@ -8,7 +8,7 @@ use directories::BaseDirs;
 use image::DynamicImage;
 use std::{
     fs::{self, File, OpenOptions},
-    path::PathBuf,
+    path::{PathBuf, Path},
     thread,
     time::Duration,
 };
@@ -20,10 +20,8 @@ fn get_clipboard_content(
     image_dir: &PathBuf,
 ) -> Result<ClipboardContent, Box<dyn std::error::Error>> {
     // first try  textt
-    if let Ok(text) = clipboard.get_text() {
-        if !text.is_empty() {
-            return Ok(ClipboardContent::Text(text));
-        }
+    if let Ok(text) = clipboard.get_text() && !text.is_empty() {
+        return Ok(ClipboardContent::Text(text));
     }
 
     // then try image
@@ -133,14 +131,14 @@ fn calculate_image_hash(img: &DynamicImage) -> u64 {
     hasher.finish()
 }
 
-fn get_daily_csv_path(base_dir: &PathBuf) -> PathBuf {
+fn get_daily_csv_path(base_dir: &Path) -> PathBuf {
     let now = Local::now();
     let data_str = now.format("%Y-%m-%d").to_string();
     base_dir.join(format!("clipboard_{}.csv", data_str))
 }
 
 fn rotate_csv_file(
-    current_csv_path: &PathBuf,
+    current_csv_path: &Path,
     upload_dir: &PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Only rotate if the file exists
@@ -249,7 +247,8 @@ fn sync_all_clipboard(upload_dir: PathBuf) -> Result<(), Box<dyn std::error::Err
 //     return Ok(());
 // }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse command line arguments
     let args = Args::parse();
 
@@ -270,7 +269,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Determine upload directory
     let upload_dir = match args.upload_dir {
-        Some(path) => PathBuf::from(path),
+        Some(path) => path,
         None => {
             if let Some(base_dirs) = BaseDirs::new() {
                 base_dirs.data_local_dir().join("clipboard-logger/upload")
@@ -285,7 +284,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Determine image directory
     let image_dir = match args.image_dir {
-        Some(dir) => PathBuf::from(dir),
+        Some(dir) => dir,
         None => {
             if let Some(base_dirs) = BaseDirs::new() {
                 base_dirs.data_local_dir().join("clipboard-logger/images")
@@ -311,7 +310,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Open the file for writing (create if it doesn't exist, append if it does)
     let file = OpenOptions::new()
-        .write(true)
         .create(true)
         .append(true)
         .open(&current_csv_path)?;
@@ -321,7 +319,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // If it's a new file, write the header
     if !file_exists {
-        wtr.write_record(&["timestamp", "content_type", "content", "image_path"])?;
+        wtr.write_record(["timestamp", "content_type", "content", "image_path"])?;
         wtr.flush()?;
     }
 
@@ -375,7 +373,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Open new file
             let new_file = OpenOptions::new()
-                .write(true)
                 .create(true)
                 .append(true)
                 .open(&current_csv_path)?;
@@ -385,7 +382,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Writer headers if it's a new file
             if !new_file_exists {
-                wtr.write_record(&["timestamp", "content_type", "content", "image_path"])?;
+                wtr.write_record(["timestamp", "content_type", "content", "image_path"])?;
                 wtr.flush()?;
             }
 

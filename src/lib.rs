@@ -138,7 +138,7 @@ pub fn sync_clipboard(clipboards: Vec<ClipboardEntry>) -> Result<(), Box<dyn Err
                 // Upload the image
                 println!("Uploading image: {:?}", image_path);
                 // Implement your image upload logic here
-                let server_resp = upload_image(&image_path, &upload_endpoint);
+                let server_resp = upload_image(image_path, &upload_endpoint);
 
                 if server_resp.is_err() {
                     println!("Failed to upload image: {:?}", server_resp);
