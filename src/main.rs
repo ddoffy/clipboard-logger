@@ -187,11 +187,14 @@ async fn process_clipboard_file(path: PathBuf) -> Result<String, Box<dyn std::er
     })?;
 
     // Sync the clipboard
-    sync_clipboard(contents).map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
-        format!("Failed to sync clipboard: {}", e).into()
-    })?;
-
-    println!("Sync completed for file: {}", path.display());
+    // we don't archive that file if sync failed, return and retries it later
+    // sync_clipboard(contents).map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+    //     format!("Failed to sync clipboard: {}", e).into()
+    // })?;
+    // If sync failed, we don't archive that file
+    if sync_clipboard(contents).is_err() {
+        return Err("Failed to sync clipboard".into());
+    }
 
     // move the file to the archive directory
     let archive_dir = path.parent().unwrap().join("archive");
