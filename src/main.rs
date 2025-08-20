@@ -7,10 +7,7 @@ use daemonize::Daemonize;
 use directories::BaseDirs;
 use image::DynamicImage;
 use std::{
-    fs::{self, File, OpenOptions},
-    path::{PathBuf, Path},
-    thread,
-    time::Duration,
+    ffi::OsStr, fs::{self, File, OpenOptions}, path::{Path, PathBuf}, thread, time::Duration
 };
 
 mod lib;
@@ -148,31 +145,81 @@ fn rotate_csv_file(
             fs::create_dir_all(upload_dir)?;
         }
 
-        //  Get yesterday's date
-        let yesterday = Local::now()
-            .checked_sub_signed(chrono::Duration::days(1))
-            .ok_or("Failed to calculate yesterday's date")?;
-        let yesterday_str = yesterday.format("%Y-%m-%d").to_string();
+        // //  Get yesterday's date
+        // let yesterday = Local::now()
+        //     .checked_sub_signed(chrono::Duration::days(1))
+        //     .ok_or("Failed to calculate yesterday's date")?;
+        // let yesterday_str = yesterday.format("%Y-%m-%d").to_string();
 
-        //  Construct the file for yesterrday's file
-        let csv_filename = format!("clipboard_{}.csv", yesterday_str);
-        let yesterday_path = current_csv_path.with_file_name(&csv_filename);
+        // //  Construct the file for yesterrday's file
+        // let csv_filename = format!("clipboard_{}.csv", yesterday_str);
+        // let yesterday_path = current_csv_path.with_file_name(&csv_filename);
 
-        // If yesterday's file exists, move it to the upload directory
-        if yesterday_path.exists() {
-            let upload_path = upload_dir.join(&csv_filename);
-            fs::rename(&yesterday_path, &upload_path)?;
-            println!(
-                "Rotated file {} to upload direcotry: {}",
-                yesterday_path.display(),
-                upload_path.display()
-            );
-        }
+        // // If yesterday's file exists, move it to the upload directory
+        // if yesterday_path.exists() {
+        //     let upload_path = upload_dir.join(&csv_filename);
+        //     fs::rename(&yesterday_path, &upload_path)?;
+        //     println!(
+        //         "Rotated file {} to upload direcotry: {}",
+        //         yesterday_path.display(),
+        //         upload_path.display()
+        //     );
+        // }
+        
+        // just move, dont care about yesterday to resolve problems when issues occur that made files could not rotate
+        let upload_path = upload_dir.join(current_csv_path.file_name().unwrap());
+
+        println!(
+            "Rotating file {} to upload directory: {}",
+            current_csv_path.display(),
+            upload_path.display()
+        );  
+
+        fs::rename(&current_csv_path, &upload_path)?;
     }
     Ok(())
 }
 
-fn sync_all_clipboard(upload_dir: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+async fn process_clipboard_file(path: PathBuf) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    // Read the CSV file
+    let contents = read_csv_file(path.to_str().unwrap()).map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+        format!("Failed to read CSV file: {}", e).into()
+    })?;
+
+    // Sync the clipboard
+    sync_clipboard(contents).map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+        format!("Failed to sync clipboard: {}", e).into()
+    })?;
+
+    println!("Sync completed for file: {}", path.display());
+
+    // move the file to the archive directory
+    let archive_dir = path.parent().unwrap().join("archive");
+
+    if !archive_dir.exists() {
+        fs::create_dir_all(&archive_dir)?;
+    }
+
+    let archive_name = format!(
+        "{}_{}.csv",
+        path.file_stem().unwrap().to_str().unwrap(),
+        Local::now().format("%Y-%m-%d_%H-%M-%S")
+    );
+
+    let archive_path = archive_dir.join(archive_name);
+
+    fs::rename(&path, &archive_path)?;
+
+    println!(
+        "Moved file {} to archive directory: {}",
+        path.display(),
+        archive_path.display()
+    );
+
+    Ok(path.display().to_string())
+}
+
+async fn sync_all_clipboard(upload_dir: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     // Get all CSV files in the upload directory
     let paths = fs::read_dir(upload_dir)?
         .filter_map(|entry| {
@@ -193,37 +240,28 @@ fn sync_all_clipboard(upload_dir: PathBuf) -> Result<(), Box<dyn std::error::Err
         metadata.modified().unwrap()
     });
 
+    // Process all paths concurrently using tokio::spawn
+    let mut handles = Vec::new();
+    
     for path in paths {
-        // Read the CSV file
-        let contents = read_csv_file(path.to_str().unwrap())?;
-
-        // Sync the clipboard
-        sync_clipboard(contents)?;
-
-        println!("Sync completed for file: {}", path.display());
-
-        // move the file to the archive directory
-        let archive_dir = path.parent().unwrap().join("archive");
-
-        if !archive_dir.exists() {
-            fs::create_dir_all(&archive_dir)?;
+        let handle = tokio::spawn(process_clipboard_file(path));
+        handles.push(handle);
+    }
+    
+    // Wait for all tasks to complete and collect results
+    for handle in handles {
+        match handle.await {
+            Ok(Ok(path)) => {
+                // Task completed successfully
+                println!("Successfully processed file: {}", path);
+            }
+            Ok(Err(e)) => {
+                eprintln!("Error processing file: {}", e);
+            }
+            Err(e) => {
+                eprintln!("Task panicked: {}", e);
+            }
         }
-
-        let archive_name = format!(
-            "{}_{}.csv",
-            path.file_stem().unwrap().to_str().unwrap(),
-            Local::now().format("%Y-%m-%d_%H-%M-%S")
-        );
-
-        let archive_path = archive_dir.join(archive_name);
-
-        fs::rename(&path, &archive_path)?;
-
-        println!(
-            "Moved file {} to archive directory: {}",
-            path.display(),
-            archive_path.display()
-        );
     }
     Ok(())
 }
@@ -360,8 +398,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 println!("Rotated file: {}", current_csv_path.display());
 
-                // Sync to server
-                sync_all_clipboard(upload_dir.clone())?;
+                // Sync to server in background without blocking
+                let upload_dir_clone = upload_dir.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = sync_all_clipboard(upload_dir_clone).await {
+                        eprintln!("Background sync failed: {}", e);
+                    } else {
+                        println!("Background sync completed successfully");
+                    }
+                });
             }
 
             // Update current date
@@ -389,6 +434,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Day changed. New log file: {}", current_csv_path.display());
         }
 
+        if args.sync {
+            // check if files were missed to rotate because of some how
+            // rotate all files left from base dir
+            for entry in fs::read_dir(&base_dir)? {
+                let entry = entry?;
+                if entry.path().extension() == Some(OsStr::new("csv")) {
+                    rotate_csv_file(&entry.path(), &upload_dir)?;
+                }
+            }
+
+            // Sync to server in background without blocking
+            let upload_dir_clone = upload_dir.clone();
+            tokio::spawn(async move {
+                if let Err(e) = sync_all_clipboard(upload_dir_clone).await {
+                    eprintln!("Background sync failed: {}", e);
+                } else {
+                    println!("Background sync completed successfully");
+                }
+            });
+        }
+        
         // Get current clipboard content
         match get_clipboard_content(&mut clipboard, &image_dir) {
             Ok(content) => {
