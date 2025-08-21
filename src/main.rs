@@ -9,6 +9,8 @@ use image::DynamicImage;
 use std::{
     ffi::OsStr, fs::{self, File, OpenOptions}, path::{Path, PathBuf}, thread, time::Duration
 };
+use log::{info, error, warn, LevelFilter};
+use flexi_logger::{FileSpec, Logger};
 
 mod lib;
 
@@ -96,7 +98,7 @@ fn setup_daemon(program_name: &str) -> Result<(), Box<dyn std::error::Error>> {
     //     }
     // };
 
-    println!("Daemon started successfully: {}", program_name);
+    info!("Daemon started successfully: {}", program_name);
 
     // // Check if the daemon is already running
     // let pid_file = log_dir.join("clipboard-logger.pid");
@@ -169,31 +171,39 @@ fn rotate_csv_file(
         // just move, dont care about yesterday to resolve problems when issues occur that made files could not rotate
         let upload_path = upload_dir.join(current_csv_path.file_name().unwrap());
 
-        println!(
+        info!(
             "Rotating file {} to upload directory: {}",
             current_csv_path.display(),
             upload_path.display()
         );  
 
-        fs::rename(&current_csv_path, &upload_path)?;
+        fs::rename(current_csv_path, &upload_path)?;
     }
     Ok(())
 }
 
+/// Processes a single clipboard file by reading its contents, syncing the clipboard, and archiving
+/// the file.
 async fn process_clipboard_file(path: PathBuf) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    info!("Processing file: {}", path.display());
+
     // Read the CSV file
     let contents = read_csv_file(path.to_str().unwrap()).map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
         format!("Failed to read CSV file: {}", e).into()
     })?;
 
     // Sync the clipboard
-    // we don't archive that file if sync failed, return and retries it later
     // sync_clipboard(contents).map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
     //     format!("Failed to sync clipboard: {}", e).into()
     // })?;
     // If sync failed, we don't archive that file
-    if sync_clipboard(contents).is_err() {
-        return Err("Failed to sync clipboard".into());
+    match sync_clipboard(contents) {
+        Ok(_) => {
+            info!("Successfully synced clipboard from file: {}", path.display());
+        }
+        Err(e) => {
+            error!("Failed to sync clipboard from file: {}. Error: {}", path.display(), e);
+        }
     }
 
     // move the file to the archive directory
@@ -211,9 +221,11 @@ async fn process_clipboard_file(path: PathBuf) -> Result<String, Box<dyn std::er
 
     let archive_path = archive_dir.join(archive_name);
 
+    info!("Moving file {} to archive directory: {}", path.display(), archive_path.display());
+
     fs::rename(&path, &archive_path)?;
 
-    println!(
+    info!(
         "Moved file {} to archive directory: {}",
         path.display(),
         archive_path.display()
@@ -226,8 +238,11 @@ async fn sync_all_clipboard(upload_dir: PathBuf) -> Result<(), Box<dyn std::erro
     // Get all CSV files in the upload directory
     let paths = fs::read_dir(upload_dir)?
         .filter_map(|entry| {
-            let entry = entry.ok()?;
-            let path = entry.path();
+            if entry.is_err() {
+                return None;
+            }
+
+            let path = entry.unwrap().path();
             if path.extension()? == OsStr::new("csv") {
                 Some(path)
             } else {
@@ -256,13 +271,13 @@ async fn sync_all_clipboard(upload_dir: PathBuf) -> Result<(), Box<dyn std::erro
         match handle.await {
             Ok(Ok(path)) => {
                 // Task completed successfully
-                println!("Successfully processed file: {}", path);
+                info!("Successfully processed file: {}", path);
             }
             Ok(Err(e)) => {
-                eprintln!("Error processing file: {}", e);
+                error!("Error processing file: {}", e);
             }
             Err(e) => {
-                eprintln!("Task panicked: {}", e);
+                error!("Task panicked: {}", e);
             }
         }
     }
@@ -290,6 +305,13 @@ async fn sync_all_clipboard(upload_dir: PathBuf) -> Result<(), Box<dyn std::erro
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+
+    Logger::try_with_str("info")
+    .unwrap()
+    .log_to_file(FileSpec::default().directory("logs").suppress_timestamp())
+    .start()
+    .unwrap();
+
     // Parse command line arguments
     let args = Args::parse();
 
@@ -347,7 +369,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Check if the file exists to determine if we need headers
     let file_exists = current_csv_path.exists();
 
-    println!("Starting clipboard logger service...");
+    info!("Starting clipboard logger service...");
 
     // Open the file for writing (create if it doesn't exist, append if it does)
     let file = OpenOptions::new()
@@ -369,19 +391,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut last_text_content = String::new();
     let mut last_image_hash: Option<u64> = None;
 
-    println!(
+    info!(
         "Clipboard logger is running. Logging to {}",
         current_csv_path.display()
     );
-    println!("Image directory: {}", image_dir.display());
-    println!("Upload directory: {}", upload_dir.display());
-    println!("Checking clipboard every {} seconds", args.interval);
+    info!("Image directory: {}", image_dir.display());
+    info!("Upload directory: {}", upload_dir.display());
+    info!("Checking clipboard every {} seconds", args.interval);
 
     if args.rotate_daily {
-        println!("Daily rotation enabled - files will be moved to the upload directory");
+        info!("Daily rotation enabled - files will be moved to the upload directory");
     }
 
-    println!("Press Ctrl+C to stop the service.");
+    info!("Press Ctrl+C to stop the service.");
 
     // Main loop - check clipboard every second
     loop {
@@ -399,15 +421,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // Rotate files
                 rotate_csv_file(&current_csv_path, &upload_dir)?;
 
-                println!("Rotated file: {}", current_csv_path.display());
+                info!("Rotated file: {}", current_csv_path.display());
 
                 // Sync to server in background without blocking
                 let upload_dir_clone = upload_dir.clone();
                 tokio::spawn(async move {
                     if let Err(e) = sync_all_clipboard(upload_dir_clone).await {
-                        eprintln!("Background sync failed: {}", e);
+                        error!("Background sync failed: {}", e);
                     } else {
-                        println!("Background sync completed successfully");
+                        info!("Background sync completed successfully");
                     }
                 });
             }
@@ -434,7 +456,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 wtr.flush()?;
             }
 
-            println!("Day changed. New log file: {}", current_csv_path.display());
+            info!("Day changed. New log file: {}", current_csv_path.display());
         }
 
         if args.sync {
@@ -451,9 +473,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let upload_dir_clone = upload_dir.clone();
             tokio::spawn(async move {
                 if let Err(e) = sync_all_clipboard(upload_dir_clone).await {
-                    eprintln!("Background sync failed: {}", e);
+                    error!("Background sync failed: {}", e);
                 } else {
-                    println!("Background sync completed successfully");
+                    info!("Background sync completed successfully");
                 }
             });
         }
@@ -480,7 +502,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             wtr.serialize(&entry)?;
                             wtr.flush()?;
 
-                            println!("Logged new text content at {}", Local::now());
+                            info!("Logged new text content at {}", Local::now());
 
                             // Update last_content
                             last_text_content = text;
@@ -522,7 +544,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             wtr.serialize(&entry)?;
                             wtr.flush()?;
 
-                            println!("Logged new image content at {}", Local::now());
+                            info!("Logged new image content at {}", Local::now());
 
                             // Update last_content
                             last_text_content = String::new();
@@ -543,7 +565,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         wtr.serialize(&entry)?;
                         wtr.flush()?;
 
-                        println!("Logged other content at {}", Local::now());
+                        info!("Logged other content at {}", Local::now());
 
                         // Update last_content
                         last_text_content = String::new();
@@ -555,7 +577,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             Err(e) => {
-                eprintln!("Error reading clipboard: {}", e);
+                error!("Error reading clipboard: {}", e);
             }
         }
 

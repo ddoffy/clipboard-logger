@@ -11,6 +11,8 @@ use std::io::{BufReader, Read};
 use std::path::Path;
 use std::path::PathBuf;
 
+use log::{info, error, warn};
+
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
@@ -120,7 +122,7 @@ pub fn sync_clipboard(clipboards: Vec<ClipboardEntry>) -> Result<(), Box<dyn Err
     for entry in clipboards {
         // Here you can implement the logic to sync each entry to the server
         // For example, you can send a POST request to your server with the entry data
-        println!("Syncing entry: {:?}", entry);
+        info!("Syncing entry: {:?}", entry);
 
         // Create the request body
         let mut request_body = ClipboardRequest {
@@ -136,12 +138,12 @@ pub fn sync_clipboard(clipboards: Vec<ClipboardEntry>) -> Result<(), Box<dyn Err
 
             if image_path.exists() {
                 // Upload the image
-                println!("Uploading image: {:?}", image_path);
+                info!("Uploading image: {:?}", image_path);
                 // Implement your image upload logic here
                 let server_resp = upload_image(image_path, &upload_endpoint);
 
                 if server_resp.is_err() {
-                    println!("Failed to upload image: {:?}", server_resp);
+                    error!("Failed to upload image: {:?}", server_resp);
                     continue;
                 }
 
@@ -152,14 +154,14 @@ pub fn sync_clipboard(clipboards: Vec<ClipboardEntry>) -> Result<(), Box<dyn Err
                     .content
                     .push_str(&format!("\nImage uploaded to: {}", server_path));
             } else {
-                println!("Image not found: {:?}", image_path);
+                warn!("Image not found: {:?}", image_path);
             }
         }
 
         // Send the request to the server
         let response = send_clipboard_to_server(&clipboard_endpoint, &token, &request_body);
         if response.is_err() {
-            println!("Failed to sync clipboard entry: {:?}", response);
+            error!("Failed to sync clipboard entry: {:?}", response);
             continue;
         }
     }
@@ -181,7 +183,7 @@ fn send_clipboard_to_server(
         .send()?;
 
     if response.status().is_success() {
-        println!("Successfully synced clipboard entry");
+        info!("Successfully synced clipboard entry");
         Ok(())
     } else {
         let status = response.status();
