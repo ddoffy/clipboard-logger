@@ -228,7 +228,7 @@ async fn sync_all_clipboard(upload_dir: PathBuf) -> Result<(), Box<dyn std::erro
         .filter_map(|entry| {
             let entry = entry.ok()?;
             let path = entry.path();
-            if path.extension()?.to_str()? == "csv" {
+            if path.extension()? == OsStr::new("csv") {
                 Some(path)
             } else {
                 None
